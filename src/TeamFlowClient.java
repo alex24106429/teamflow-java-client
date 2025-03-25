@@ -356,6 +356,7 @@ public class TeamFlowClient {
                     System.exit(0);
                     return false;
                 } else if ("/back".equals(input)) {
+                    currentContextId = null;
                     return true; // Go back to context type selection
                 } else if (input.startsWith("/create " + contextType)) {
                     createEntity(scanner, contextType);
@@ -658,7 +659,7 @@ public class TeamFlowClient {
             WebSocket.Listener listener = new WebSocketClientListener();
             CompletableFuture<WebSocket> wsFuture = client.newWebSocketBuilder()
                     .header("Authorization", "Bearer " + authToken)
-                    .buildAsync(URI.create("ws://localhost:8080/chat" + wsPath + "?Authorization=Bearer%20" + authToken), listener);
+                    .buildAsync(URI.create("ws://localhost:51738/chat" + wsPath), listener);
             websocketSession = wsFuture.get();
             System.out.println("WebSocket connected to " + currentContextType + " chat.");
 
