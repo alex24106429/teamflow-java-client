@@ -1,7 +1,6 @@
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.WebSocket;
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -13,12 +12,12 @@ import java.util.concurrent.ExecutionException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class TeamFlowWebSocketClient {
+public class WebSocketClient {
 
     private static WebSocket websocketSession = null;
     private static CountDownLatch messageLatch = null;
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS");
-    private static List<TeamFlowHttpClient.MessageDto> receivedMessages = new ArrayList<>();
+    private static List<HttpClient.MessageDto> receivedMessages = new ArrayList<>();
 
 
     public static void connectWebSocket(String currentContextType, UUID currentContextId, String authToken) {
@@ -74,9 +73,9 @@ public class TeamFlowWebSocketClient {
              Pattern messagePattern = Pattern.compile("\\{\"id\":\"([^\"]+)\",\"content\":\"([^\"]*)\",\"sender\":\\{\"id\":\"([^\"]+)\",\"username\":\"([^\"]+)\".*?\\},.*?\"createdAt\":\"([^\"]+)\".*?\\}");
             Matcher matcher = messagePattern.matcher(messageJson);
             if (matcher.find()) {
-                TeamFlowHttpClient.MessageDto message = new TeamFlowHttpClient.MessageDto();
+                HttpClient.MessageDto message = new HttpClient.MessageDto();
                 message.setContent(matcher.group(2));
-                TeamFlowHttpClient.UserDto sender = new TeamFlowHttpClient.UserDto();
+                HttpClient.UserDto sender = new HttpClient.UserDto();
                 sender.setUsername(matcher.group(4));
                 message.setSender(sender);
                 message.setCreatedAt(LocalDateTime.parse(matcher.group(5).substring(0, matcher.group(5).indexOf('.')), DATE_TIME_FORMATTER));

@@ -63,9 +63,9 @@ public class TeamFlowClient {
                 String password = new String(passwordChars);
 
                 try {
-                    TeamFlowHttpClient.LoginResponse response = TeamFlowHttpClient.performAuthRequest(choice, username, password);
+                    HttpClient.LoginResponse response = HttpClient.performAuthRequest(choice, username, password);
                     authToken = response.getToken();
-                    TeamFlowHttpClient.setAuthToken(authToken); // Set token in HttpClient as well
+                    HttpClient.setAuthToken(authToken); // Set token in HttpClient as well
                     System.out.println(choice.substring(0, 1).toUpperCase() + choice.substring(1) + " successful!");
                     return true;
                 } catch (IOException | InterruptedException e) {
@@ -82,7 +82,7 @@ public class TeamFlowClient {
     private static boolean selectTeam(Scanner scanner) {
         while (true) {
             System.out.println("\nAvailable Teams:");
-            List<TeamFlowHttpClient.TeamDto> teams = TeamFlowHttpClient.fetchTeams();
+            List<HttpClient.TeamDto> teams = HttpClient.fetchTeams();
             if (teams == null || teams.isEmpty()) {
                 System.out.println("No teams available. Use '/create team' to create one.");
             } else {
@@ -143,7 +143,7 @@ public class TeamFlowClient {
         System.out.print("Enter team name: ");
         String teamName = scanner.nextLine();
         try {
-            TeamFlowHttpClient.TeamDto createdTeam = TeamFlowHttpClient.performTeamCrud("POST", null, String.format("{\"name\": \"%s\"}", teamName));
+            HttpClient.TeamDto createdTeam = HttpClient.performTeamCrud("POST", null, String.format("{\"name\": \"%s\"}", teamName));
             if (createdTeam != null) {
                 System.out.println("Team created: " + createdTeam.getName());
             }
@@ -157,7 +157,7 @@ public class TeamFlowClient {
         System.out.print("Enter new team name: ");
         String teamName = scanner.nextLine();
         try {
-            TeamFlowHttpClient.TeamDto updatedTeam = TeamFlowHttpClient.performTeamCrud("PUT", teamId, String.format("{\"name\": \"%s\"}", teamName));
+            HttpClient.TeamDto updatedTeam = HttpClient.performTeamCrud("PUT", teamId, String.format("{\"name\": \"%s\"}", teamName));
             if (updatedTeam != null) {
                 System.out.println("Team updated to: " + updatedTeam.getName());
             }
@@ -169,7 +169,7 @@ public class TeamFlowClient {
     private static void deleteTeam(Scanner scanner, UUID teamId) {
         if (teamId == null) return;
         try {
-            boolean success = TeamFlowHttpClient.performTeamCrud("DELETE", teamId, null) != null; // DELETE returns void, check for exception instead
+            boolean success = HttpClient.performTeamCrud("DELETE", teamId, null) != null; // DELETE returns void, check for exception instead
             if (success) {
                 System.out.println("Team deleted.");
                 currentTeamId = null; // Reset current team
@@ -207,7 +207,7 @@ public class TeamFlowClient {
     private static boolean selectContextEntity(Scanner scanner, String contextType) {
         while (true) {
             System.out.println("\nAvailable " + contextType + "s:");
-            List<? extends TeamFlowHttpClient.ContextEntityDto> entities = TeamFlowHttpClient.fetchContextEntities(contextType, currentTeamId);
+            List<? extends HttpClient.ContextEntityDto> entities = HttpClient.fetchContextEntities(contextType, currentTeamId);
             if (entities == null || entities.isEmpty()) {
                 System.out.println("No " + contextType + "s available. Use '/create " + contextType + "' to create one.");
             } else {
@@ -265,8 +265,8 @@ public class TeamFlowClient {
         switch (entityType) {
             case "sprint": path = "/sprints/start"; jsonPayloadFormat = "{\"teamId\": \"%s\", \"name\": \"%s\", \"startDate\": \"%s\", \"endDate\": \"%s\"}"; parentId = currentTeamId; break; // Need start/end dates
             case "epic": path = "/epics?teamId=" + currentTeamId; break;
-            case "userstory": path = "/user-stories?epicId=" + TeamFlowHttpClient.fetchFirstEpicId("epic", currentTeamId); break; // Simplification
-            case "task": path = "/tasks?userStoryId=" + TeamFlowHttpClient.fetchFirstUserStoryId("userstory", currentTeamId); break; // Simplification
+            case "userstory": path = "/user-stories?epicId=" + HttpClient.fetchFirstEpicId("epic", currentTeamId); break; // Simplification
+            case "task": path = "/tasks?userStoryId=" + HttpClient.fetchFirstUserStoryId("userstory", currentTeamId); break; // Simplification
             default: return;
         }
 
@@ -284,7 +284,7 @@ public class TeamFlowClient {
 
 
         try {
-            TeamFlowHttpClient.ContextEntityDto createdEntity = TeamFlowHttpClient.performEntityCrud("POST", entityType, null, path, jsonPayload);
+            HttpClient.ContextEntityDto createdEntity = HttpClient.performEntityCrud("POST", entityType, null, path, jsonPayload);
             if (createdEntity != null) {
                 System.out.println(entityType + " created: " + createdEntity.getName());
             }
@@ -310,7 +310,7 @@ public class TeamFlowClient {
         String jsonPayload = String.format(jsonPayloadFormat, entityName);
 
         try {
-            TeamFlowHttpClient.ContextEntityDto updatedEntity = TeamFlowHttpClient.performEntityCrud("PUT", entityType, entityId, path, jsonPayload);
+            HttpClient.ContextEntityDto updatedEntity = HttpClient.performEntityCrud("PUT", entityType, entityId, path, jsonPayload);
             if (updatedEntity != null) {
                 System.out.println(entityType + " updated to: " + updatedEntity.getName());
             }
@@ -331,7 +331,7 @@ public class TeamFlowClient {
         }
 
         try {
-            boolean success = TeamFlowHttpClient.performEntityCrud("DELETE", entityType, entityId, path, null) != null; // DELETE returns void
+            boolean success = HttpClient.performEntityCrud("DELETE", entityType, entityId, path, null) != null; // DELETE returns void
             if (success) {
                 System.out.println(entityType + " deleted.");
             }
@@ -343,35 +343,35 @@ public class TeamFlowClient {
 
 
     private static void startChat(Scanner scanner) {
-        List<TeamFlowHttpClient.MessageDto> receivedMessages = TeamFlowHttpClient.fetchMessages(currentContextType, currentContextId);
+        List<HttpClient.MessageDto> receivedMessages = HttpClient.fetchMessages(currentContextType, currentContextId);
         if (receivedMessages != null) {
             receivedMessages.forEach(msg -> {
                 System.out.printf("%s (%s): %s\n", msg.getSender().getUsername(), msg.getCreatedAt().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME), msg.getContent());
             });
         }
 
-        TeamFlowWebSocketClient.connectWebSocket(currentContextType, currentContextId, authToken);
+        WebSocketClient.connectWebSocket(currentContextType, currentContextId, authToken);
 
         System.out.println("\nEnter messages to send, or /back to return to context selection, /exit to quit:");
         while (true) {
             String messageInput = scanner.nextLine();
             if ("/back".equals(messageInput)) {
-                TeamFlowWebSocketClient.closeWebSocket();
+                WebSocketClient.closeWebSocket();
                 return;
             } else if ("/exit".equals(messageInput)) {
                 System.out.println("Exiting application.");
-                TeamFlowWebSocketClient.closeWebSocket();
+                WebSocketClient.closeWebSocket();
                 System.exit(0);
                 return;
             } else {
-                TeamFlowWebSocketClient.sendMessage(messageInput);
+                WebSocketClient.sendMessage(messageInput);
             }
         }
     }
 
 
 
-    private static void printList(List<? extends TeamFlowHttpClient.ContextEntityDto> items, String itemName) {
+    private static void printList(List<? extends HttpClient.ContextEntityDto> items, String itemName) {
         for (int i = 0; i < items.size(); i++) {
             System.out.println((i + 1) + ". " + itemName + ": " + items.get(i).getName());
         }

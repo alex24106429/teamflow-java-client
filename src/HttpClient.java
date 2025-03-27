@@ -13,7 +13,7 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class TeamFlowHttpClient {
+public class HttpClient {
 
     private static final String API_BASE_URL = "http://localhost:51738/api";
     private static String authToken;
