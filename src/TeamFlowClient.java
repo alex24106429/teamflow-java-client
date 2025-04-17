@@ -43,7 +43,7 @@ public class TeamFlowClient {
 
     private static boolean loginOrRegister(Scanner scanner, Console console) {
         while (true) {
-            System.out.println("\nLogin or Register? (login/register/exit)");
+            System.out.println("\nWelcome! Login or Register? (login/register/exit)");
             String choice = scanner.nextLine().trim().toLowerCase();
 
             if ("exit".equals(choice)) {
