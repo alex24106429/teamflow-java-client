@@ -12,12 +12,16 @@ import java.util.concurrent.ExecutionException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+// Import the new DTOs
+import dto.MessageDto;
+import dto.UserDto;
+
 public class WebSocketClient {
 
     private static WebSocket websocketSession = null;
     private static CountDownLatch messageLatch = null;
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS");
-    private static List<HttpClient.MessageDto> receivedMessages = new ArrayList<>();
+    // Removed unused receivedMessages list
 
 
     public static void connectWebSocket(String currentContextType, UUID currentContextId, String authToken) {
@@ -73,16 +77,29 @@ public class WebSocketClient {
              Pattern messagePattern = Pattern.compile("\\{\"id\":\"([^\"]+)\",\"content\":\"([^\"]*)\",\"sender\":\\{\"id\":\"([^\"]+)\",\"username\":\"([^\"]+)\".*?\\},.*?\"createdAt\":\"([^\"]+)\".*?\\}");
             Matcher matcher = messagePattern.matcher(messageJson);
             if (matcher.find()) {
-                HttpClient.MessageDto message = new HttpClient.MessageDto();
+                // Use the imported DTOs directly
+                MessageDto message = new MessageDto();
                 message.setContent(matcher.group(2));
-                HttpClient.UserDto sender = new HttpClient.UserDto();
+                UserDto sender = new UserDto();
                 sender.setUsername(matcher.group(4));
                 message.setSender(sender);
-                message.setCreatedAt(LocalDateTime.parse(matcher.group(5).substring(0, matcher.group(5).indexOf('.')), DATE_TIME_FORMATTER));
+                // Handle potential parsing errors for createdAt
+                try {
+                    String createdAtString = matcher.group(5);
+                    // Adjust parsing if milliseconds are not always present
+                    if (createdAtString.contains(".")) {
+                         createdAtString = createdAtString.substring(0, createdAtString.indexOf('.'));
+                    }
+                    message.setCreatedAt(LocalDateTime.parse(createdAtString, DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+                     System.out.printf("\n%s (%s): %s\n> ", message.getSender().getUsername(), message.getCreatedAt().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME), message.getContent()); // Print new message with prompt
+                } catch (Exception e) {
+                    System.err.println("Error parsing createdAt: " + matcher.group(5) + " - " + e.getMessage());
+                    System.out.println("Received raw message: " + messageJson); // Print raw message on error
+                    System.out.print("> "); // Re-print prompt
+                }
 
-                System.out.printf("\n%s (%s): %s\n> ", message.getSender().getUsername(), message.getCreatedAt().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME), message.getContent()); // Print new message with prompt
             } else {
-                System.out.println("Received message: " + messageJson); // Fallback for unparsed messages
+                System.out.println("Received unparsed message: " + messageJson); // Fallback for unparsed messages
                 System.out.print("> "); // Re-print prompt
             }
             webSocket.request(1);
