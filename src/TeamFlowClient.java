@@ -272,10 +272,14 @@ public class TeamFlowClient {
 
         String jsonPayload;
         if ("sprint".equals(entityType)) {
-            System.out.print("Enter start date (YYYY-MM-DDTHH:mm:ss): "); // ISO format, adjust as needed
+            System.out.print("Enter start date (YYYY-MM-DD): "); // ISO format, adjust as needed
             String startDate = scanner.nextLine();
-            System.out.print("Enter end date (YYYY-MM-DDTHH:mm:ss): ");
+            System.out.print("Enter end date (YYYY-MM-DD): ");
             String endDate = scanner.nextLine();
+
+            startDate = startDate + "T00:00:00.000Z"; // Append time part
+            endDate = endDate + "T00:00:00.000Z"; // Append time part
+
             jsonPayload = String.format(jsonPayloadFormat, currentTeamId, entityName, startDate, endDate);
         }
          else {
