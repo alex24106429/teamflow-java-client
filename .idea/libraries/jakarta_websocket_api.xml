@@ -1,0 +1,10 @@
+<component name="libraryTable">
+  <library name="jakarta.websocket.api" type="repository">
+    <properties maven-id="jakarta.websocket:jakarta.websocket-api:2.2.0" />
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/lib/jakarta.websocket-api-2.2.0.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

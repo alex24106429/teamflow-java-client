@@ -1,0 +1,13 @@
+<component name="libraryTable">
+  <library name="springframework.spring.messaging" type="repository">
+    <properties maven-id="org.springframework:spring-messaging:6.2.5" />
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/lib/spring-messaging-6.2.5.jar!/" />
+      <root url="jar://$PROJECT_DIR$/lib/spring-beans-6.2.5.jar!/" />
+      <root url="jar://$PROJECT_DIR$/lib/spring-core-6.2.5.jar!/" />
+      <root url="jar://$PROJECT_DIR$/lib/spring-jcl-6.2.5.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

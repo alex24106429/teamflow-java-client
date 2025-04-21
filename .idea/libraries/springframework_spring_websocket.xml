@@ -1,0 +1,19 @@
+<component name="libraryTable">
+  <library name="springframework.spring.websocket" type="repository">
+    <properties maven-id="org.springframework:spring-websocket:6.2.5" />
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/lib/spring-websocket-6.2.5.jar!/" />
+      <root url="jar://$PROJECT_DIR$/lib/spring-context-6.2.5.jar!/" />
+      <root url="jar://$PROJECT_DIR$/lib/spring-aop-6.2.5.jar!/" />
+      <root url="jar://$PROJECT_DIR$/lib/spring-beans-6.2.5.jar!/" />
+      <root url="jar://$PROJECT_DIR$/lib/spring-expression-6.2.5.jar!/" />
+      <root url="jar://$PROJECT_DIR$/lib/micrometer-observation-1.14.5.jar!/" />
+      <root url="jar://$PROJECT_DIR$/lib/micrometer-commons-1.14.5.jar!/" />
+      <root url="jar://$PROJECT_DIR$/lib/spring-core-6.2.5.jar!/" />
+      <root url="jar://$PROJECT_DIR$/lib/spring-jcl-6.2.5.jar!/" />
+      <root url="jar://$PROJECT_DIR$/lib/spring-web-6.2.5.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
