@@ -1,3 +1,10 @@
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
+// Remove the explicit import for JavaTimeModule
+// import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import dto.*; // Import all DTOs
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -5,20 +12,22 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public class HttpClient {
 
-    private static final String API_BASE_URL = "http://localhost:51738/api";
+    private static final String API_BASE_URL = "http://localhost:51738/api"; // Ensure this matches your backend port
     private static String authToken;
-    private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS");
 
+    // Jackson ObjectMapper instance
+    // Remove the JavaTimeModule registration to avoid classpath issues
+    private static final ObjectMapper objectMapper = new ObjectMapper()
+            // .registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule()) // REMOVED
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false); // Be lenient with unknown fields
 
     public static void setAuthToken(String token) {
         authToken = token;
@@ -28,15 +37,27 @@ public class HttpClient {
         return authToken;
     }
 
+    // Login/Register Request DTO (simple alternative to Map)
+    private static class AuthRequest {
+        public String username;
+        public String password;
 
-    public static LoginResponse performAuthRequest(String action, String username, String password) throws IOException, InterruptedException {
-        URL url = new URL(API_BASE_URL + "/" + action);
+        public AuthRequest(String username, String password) {
+            this.username = username;
+            this.password = password;
+        }
+    }
+
+    public static LoginResponseDto performAuthRequest(String action, String username, String password) throws IOException, InterruptedException {
+        URL url = new URL(API_BASE_URL + "/" + action); // Assuming action is "login" or "register"
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.setRequestMethod("POST");
         connection.setRequestProperty("Content-Type", "application/json");
         connection.setDoOutput(true);
 
-        String jsonInputString = String.format("{\"username\": \"%s\", \"password\": \"%s\"}", username, password);
+        AuthRequest authRequest = new AuthRequest(username, password);
+        String jsonInputString = objectMapper.writeValueAsString(authRequest);
+
         try (OutputStream os = connection.getOutputStream()) {
             byte[] input = jsonInputString.getBytes(StandardCharsets.UTF_8);
             os.write(input, 0, input.length);
@@ -45,62 +66,37 @@ public class HttpClient {
         int responseCode = connection.getResponseCode();
         if (responseCode == HttpURLConnection.HTTP_OK) {
             try (BufferedReader br = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
-                StringBuilder response = new StringBuilder();
-                String responseLine;
-                while ((responseLine = br.readLine()) != null) {
-                    response.append(responseLine.trim());
-                }
-                return parseLoginResponse(response.toString());
+                return objectMapper.readValue(br, LoginResponseDto.class);
             }
         } else {
-            try (BufferedReader br = new BufferedReader(new InputStreamReader(connection.getErrorStream(), StandardCharsets.UTF_8))) {
-                StringBuilder errorResponse = new StringBuilder();
-                String responseLine;
-                while ((responseLine = br.readLine()) != null) {
-                    errorResponse.append(responseLine.trim());
-                }
-                throw new IOException("Authentication failed: " + responseCode + " - " + errorResponse.toString());
-            }
+            String errorDetails = readErrorStream(connection);
+            throw new IOException("Authentication failed: " + responseCode + " - " + errorDetails);
         }
     }
 
-    private static LoginResponse parseLoginResponse(String jsonResponse) {
-        Pattern tokenPattern = Pattern.compile("\"token\":\"([^\"]+)\"");
-        Matcher tokenMatcher = tokenPattern.matcher(jsonResponse);
-        String token = tokenMatcher.find() ? tokenMatcher.group(1) : null;
-        return new LoginResponse(token, null); // Message not really needed for client.
-    }
 
-
-    public static List<TeamDto> fetchTeams() {
+    public static List<TeamDto> fetchTeams() throws IOException, InterruptedException {
         try {
             String response = sendGetRequest("/teams");
-            return parseTeamList(response);
+            return objectMapper.readValue(response, new TypeReference<List<TeamDto>>() {});
         } catch (IOException | InterruptedException e) {
             System.err.println("Failed to fetch teams: " + e.getMessage());
-            return null;
+            // Re-throw or handle more gracefully depending on requirements
+            throw e; // Or return Collections.emptyList();
         }
     }
 
-    private static List<TeamDto> parseTeamList(String jsonResponse) {
-        List<TeamDto> teams = new ArrayList<>();
-        Pattern teamPattern = Pattern.compile("\\{\"id\":\"([^\"]+)\",\"name\":\"([^\"]+)\".*?\\}");
-        Matcher matcher = teamPattern.matcher(jsonResponse);
-        int index = 1;
-        while (matcher.find()) {
-            teams.add(new TeamDto(UUID.fromString(matcher.group(1)), matcher.group(2), index++));
-        }
-        return teams;
-    }
 
-
+    // Note: Accepts pre-formatted jsonPayload for PUT/POST to maintain compatibility with current TeamFlowClient
+    // Ideally, this should accept a DTO. Parses the response using Jackson.
     public static TeamDto performTeamCrud(String method, UUID teamId, String jsonPayload) throws IOException, InterruptedException {
         String path = "/teams";
         if (teamId != null) {
             path += "/" + teamId;
         }
         HttpURLConnection connection = prepareCrudConnection(method, path);
-        if (jsonPayload != null && !method.equals("DELETE")) {
+
+        if (jsonPayload != null && (method.equals("POST") || method.equals("PUT"))) {
             connection.setDoOutput(true);
             try (OutputStream os = connection.getOutputStream()) {
                 byte[] input = jsonPayload.getBytes(StandardCharsets.UTF_8);
@@ -112,91 +108,105 @@ public class HttpClient {
         if (responseCode == HttpURLConnection.HTTP_OK || responseCode == HttpURLConnection.HTTP_CREATED) {
             if (method.equals("DELETE")) return null; // DELETE returns no body
             try (BufferedReader br = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
-                StringBuilder response = new StringBuilder();
-                String responseLine;
-                while ((responseLine = br.readLine()) != null) {
-                    response.append(responseLine.trim());
-                }
-                return parseTeamDto(response.toString());
+                return objectMapper.readValue(br, TeamDto.class);
             }
         } else if (responseCode == HttpURLConnection.HTTP_NO_CONTENT && method.equals("DELETE")) {
             return null; // Successful delete
-        }
-        else {
-            try (BufferedReader br = new BufferedReader(new InputStreamReader(connection.getErrorStream(), StandardCharsets.UTF_8))) {
-                StringBuilder errorResponse = new StringBuilder();
-                String responseLine;
-                while ((responseLine = br.readLine()) != null) {
-                    errorResponse.append(responseLine.trim());
-                }
-                throw new IOException(String.format("Team operation failed (%s): %d - %s", method, responseCode, errorResponse.toString()));
-            }
+        } else {
+            String errorDetails = readErrorStream(connection);
+            throw new IOException(String.format("Team operation failed (%s): %d - %s", method, responseCode, errorDetails));
         }
     }
 
-    private static TeamDto parseTeamDto(String jsonResponse) {
-        Pattern teamPattern = Pattern.compile("\\{\"id\":\"([^\"]+)\",\"name\":\"([^\"]+)\".*?\\}");
-        Matcher matcher = teamPattern.matcher(jsonResponse);
-        if (matcher.find()) {
-            return new TeamDto(UUID.fromString(matcher.group(1)), matcher.group(2), -1); // Index not relevant here
-        }
-        return null;
-    }
 
-
-    public static List<? extends ContextEntityDto> fetchContextEntities(String contextType, UUID currentTeamId) {
+    // Returns List<?> because the specific DTO type depends on contextType.
+    // Caller needs to handle casting or use instanceof.
+    public static List<?> fetchContextEntities(String contextType, UUID currentTeamId) throws IOException, InterruptedException {
         String path = "";
+        TypeReference<?> typeRef = null;
+
         switch (contextType) {
-            case "sprint": path = "/sprints/teams/" + currentTeamId + "/sprints"; break;
-            case "epic": path = "/epics?teamId=" + currentTeamId; break;
-            case "userstory": path = "/user-stories?epicId=" + fetchFirstEpicId("epic", currentTeamId); break; // Simplification: first epic for user stories
-            case "task": path = "/tasks?userStoryId=" + fetchFirstUserStoryId("userstory", currentTeamId); break; // Simplification: first user story for tasks
-            default: return null;
+            case "sprint":
+                path = "/sprints/teams/" + currentTeamId + "/sprints";
+                typeRef = new TypeReference<List<SprintDto>>() {};
+                break;
+            case "epic":
+                path = "/epics?teamId=" + currentTeamId;
+                typeRef = new TypeReference<List<EpicDto>>() {};
+                break;
+            case "userstory":
+                UUID epicId = fetchFirstEpicId(currentTeamId); // Fetch epic ID first
+                if (epicId == null) {
+                    System.err.println("No epics found for team " + currentTeamId + ". Cannot fetch user stories.");
+                    return new ArrayList<>(); // Return empty list if no parent epic
+                }
+                path = "/user-stories?epicId=" + epicId;
+                typeRef = new TypeReference<List<UserStoryDto>>() {};
+                break;
+            case "task":
+                UUID userStoryId = fetchFirstUserStoryId(currentTeamId); // Fetch user story ID first
+                if (userStoryId == null) {
+                     System.err.println("No user stories found for team " + currentTeamId + ". Cannot fetch tasks.");
+                    return new ArrayList<>(); // Return empty list if no parent user story
+                }
+                path = "/tasks?userStoryId=" + userStoryId;
+                typeRef = new TypeReference<List<TaskDto>>() {};
+                break;
+            default:
+                System.err.println("Unknown context type: " + contextType);
+                return new ArrayList<>(); // Or throw exception
         }
+
         try {
             String response = sendGetRequest(path);
-            return parseContextEntityList(response, contextType);
+            if (typeRef != null) {
+                // Add explicit cast here
+                return (List<?>) objectMapper.readValue(response, typeRef);
+            } else {
+                return new ArrayList<>(); // Should not happen if contextType is valid
+            }
         } catch (IOException | InterruptedException e) {
             System.err.println("Failed to fetch " + contextType + "s: " + e.getMessage());
-            return null;
+            throw e; // Or return empty list
         }
     }
 
-     static UUID fetchFirstEpicId(String contextType, UUID currentTeamId) {
-        List<EpicDto> epics = (List<EpicDto>) fetchContextEntities("epic", currentTeamId);
-        return epics != null && !epics.isEmpty() ? epics.get(0).getId() : null;
-    }
-
-    static UUID fetchFirstUserStoryId(String contextType, UUID currentTeamId) {
-        List<UserStoryDto> userStories = (List<UserStoryDto>) fetchContextEntities("userstory", currentTeamId);
-        return userStories != null && !userStories.isEmpty() ? userStories.get(0).getId() : null;
-    }
-
-
-    private static List<? extends ContextEntityDto> parseContextEntityList(String jsonResponse, String contextType) {
-        List<ContextEntityDto> entities = new ArrayList<>();
-        Pattern entityPattern = Pattern.compile("\\{\"id\":\"([^\"]+)\",\"name\":\"([^\"]+)\".*?\\}");
-        Matcher matcher = entityPattern.matcher(jsonResponse);
-        int index = 1;
-        while (matcher.find()) {
-            UUID id = UUID.fromString(matcher.group(1));
-            String name = matcher.group(2);
-            switch (contextType) {
-                case "sprint": entities.add(new SprintDto(id, name, index++)); break;
-                case "epic": entities.add(new EpicDto(id, name, index++)); break;
-                case "userstory": entities.add(new UserStoryDto(id, name, index++)); break;
-                case "task": entities.add(new TaskDto(id, name, index++)); break;
-            }
+     // Helper method, potentially refactor to avoid multiple fetches if performance is critical
+     static UUID fetchFirstEpicId(UUID currentTeamId) throws IOException, InterruptedException {
+        String path = "/epics?teamId=" + currentTeamId;
+        try {
+            String response = sendGetRequest(path);
+            List<EpicDto> epics = objectMapper.readValue(response, new TypeReference<List<EpicDto>>() {});
+            return epics != null && !epics.isEmpty() ? epics.get(0).getId() : null;
+        } catch (IOException | InterruptedException e) {
+            System.err.println("Failed to fetch epics for team " + currentTeamId + ": " + e.getMessage());
+            throw e;
         }
-        return entities;
+    }
+
+    // Helper method, potentially refactor
+    static UUID fetchFirstUserStoryId(UUID currentTeamId) throws IOException, InterruptedException {
+        UUID epicId = fetchFirstEpicId(currentTeamId);
+        if (epicId == null) return null;
+
+        String path = "/user-stories?epicId=" + epicId;
+        try {
+            String response = sendGetRequest(path);
+            List<UserStoryDto> userStories = objectMapper.readValue(response, new TypeReference<List<UserStoryDto>>() {});
+            return userStories != null && !userStories.isEmpty() ? userStories.get(0).getId() : null;
+        } catch (IOException | InterruptedException e) {
+            System.err.println("Failed to fetch user stories for epic " + epicId + ": " + e.getMessage());
+            throw e;
+        }
     }
 
 
-    public static ContextEntityDto performEntityCrud(String method, String entityType, UUID entityId, String path, String jsonPayload) throws IOException, InterruptedException {
-        String fullPath = API_BASE_URL + path;
-        HttpURLConnection connection = prepareCrudConnection(method, path);
+    // Note: Accepts pre-formatted jsonPayload for PUT/POST. Parses response using Jackson.
+    // Returns Object, caller needs to cast based on entityType.
+    public static Object performEntityCrud(String method, String entityType, UUID entityId, String path, String jsonPayload) throws IOException, InterruptedException {
+        HttpURLConnection connection = prepareCrudConnection(method, path); // Path should include ID or query params as needed
 
-        if (jsonPayload != null && !method.equals("DELETE")) {
+        if (jsonPayload != null && (method.equals("POST") || method.equals("PUT"))) {
             connection.setDoOutput(true);
             try (OutputStream os = connection.getOutputStream()) {
                 byte[] input = jsonPayload.getBytes(StandardCharsets.UTF_8);
@@ -208,43 +218,72 @@ public class HttpClient {
         if (responseCode == HttpURLConnection.HTTP_OK || responseCode == HttpURLConnection.HTTP_CREATED) {
             if (method.equals("DELETE")) return null; // DELETE returns no body
             try (BufferedReader br = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
-                StringBuilder response = new StringBuilder();
-                String responseLine;
-                while ((responseLine = br.readLine()) != null) {
-                    response.append(responseLine.trim());
+                Class<?> dtoClass = getDtoClassForEntityType(entityType);
+                if (dtoClass != null) {
+                    return objectMapper.readValue(br, dtoClass);
+                } else {
+                    throw new IOException("Unknown entity type for response parsing: " + entityType);
                 }
-                return parseContextEntityDto(response.toString(), entityType);
             }
         } else if (responseCode == HttpURLConnection.HTTP_NO_CONTENT && method.equals("DELETE")) {
             return null; // Successful delete
-        }
-        else {
-            try (BufferedReader br = new BufferedReader(new InputStreamReader(connection.getErrorStream(), StandardCharsets.UTF_8))) {
-                StringBuilder errorResponse = new StringBuilder();
-                String responseLine;
-                while ((responseLine = br.readLine()) != null) {
-                    errorResponse.append(responseLine.trim());
-                }
-                throw new IOException(String.format("%s operation failed (%s): %d - %s", entityType, method, responseCode, errorResponse.toString()));
-            }
+        } else {
+            String errorDetails = readErrorStream(connection);
+            throw new IOException(String.format("%s operation failed (%s on %s): %d - %s",
+                    capitalize(entityType), method, path, responseCode, errorDetails));
         }
     }
 
-    private static ContextEntityDto parseContextEntityDto(String jsonResponse, String entityType) {
-         Pattern entityPattern = Pattern.compile("\\{\"id\":\"([^\"]+)\",\"name\":\"([^\"]+)\".*?\\}");
-        Matcher matcher = entityPattern.matcher(jsonResponse);
-        if (matcher.find()) {
-            UUID id = UUID.fromString(matcher.group(1));
-            String name = matcher.group(2);
-            switch (entityType) {
-                case "sprint": return new SprintDto(id, name, -1);
-                case "epic": return new EpicDto(id, name, -1);
-                case "userstory": return new UserStoryDto(id, name, -1);
-                case "task": return new TaskDto(id, name, -1);
-            }
+    // Helper to get DTO class from entity type string
+    private static Class<?> getDtoClassForEntityType(String entityType) {
+        switch (entityType) {
+            case "sprint": return SprintDto.class;
+            case "epic": return EpicDto.class;
+            case "userstory": return UserStoryDto.class;
+            case "task": return TaskDto.class;
+            case "team": return TeamDto.class; // Added for consistency if needed elsewhere
+            default: return null;
         }
-        return null;
     }
+
+
+    // --- NEW CREATE METHODS (Using Jackson for Request Body) ---
+
+    public static EpicDto createEpic(UUID teamId, String name, String description) throws IOException, InterruptedException {
+        String path = "/epics?teamId=" + teamId;
+        Map<String, String> payload = new HashMap<>();
+        payload.put("name", name);
+        payload.put("description", description);
+        String jsonPayload = objectMapper.writeValueAsString(payload);
+        // Cast the result, assuming performEntityCrud returns the correct type based on entityType
+        return (EpicDto) performEntityCrud("POST", "epic", null, path, jsonPayload);
+    }
+
+    public static UserStoryDto createUserStory(UUID epicId, String name, String description, String status) throws IOException, InterruptedException {
+        String path = "/user-stories?epicId=" + epicId;
+        Map<String, String> payload = new HashMap<>();
+        payload.put("name", name);
+        payload.put("description", description);
+        if (status != null && !status.isEmpty()) {
+            payload.put("status", status);
+        }
+        String jsonPayload = objectMapper.writeValueAsString(payload);
+        return (UserStoryDto) performEntityCrud("POST", "userstory", null, path, jsonPayload);
+    }
+
+    public static TaskDto createTask(UUID userStoryId, String name, String description, String status) throws IOException, InterruptedException {
+        String path = "/tasks?userStoryId=" + userStoryId;
+         Map<String, String> payload = new HashMap<>();
+        payload.put("name", name);
+        payload.put("description", description);
+         if (status != null && !status.isEmpty()) {
+            payload.put("status", status);
+        }
+        String jsonPayload = objectMapper.writeValueAsString(payload);
+        return (TaskDto) performEntityCrud("POST", "task", null, path, jsonPayload);
+    }
+
+    // --- END NEW CREATE METHODS ---
 
 
     private static HttpURLConnection prepareCrudConnection(String method, String path) throws IOException {
@@ -252,16 +291,23 @@ public class HttpClient {
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.setRequestMethod(method);
         connection.setRequestProperty("Content-Type", "application/json");
-        connection.setRequestProperty("Authorization", "Bearer " + authToken);
+        connection.setRequestProperty("Accept", "application/json"); // Good practice to add Accept header
+        if (authToken != null) {
+            connection.setRequestProperty("Authorization", "Bearer " + authToken);
+        }
         return connection;
     }
 
 
+    // Sends GET request and returns the raw response body as String
     public static String sendGetRequest(String path) throws IOException, InterruptedException {
         URL url = new URL(API_BASE_URL + path);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.setRequestMethod("GET");
-        connection.setRequestProperty("Authorization", "Bearer " + authToken);
+        connection.setRequestProperty("Accept", "application/json");
+        if (authToken != null) {
+            connection.setRequestProperty("Authorization", "Bearer " + authToken);
+        }
 
         int responseCode = connection.getResponseCode();
         if (responseCode == HttpURLConnection.HTTP_OK) {
@@ -269,134 +315,93 @@ public class HttpClient {
                 StringBuilder response = new StringBuilder();
                 String responseLine;
                 while ((responseLine = br.readLine()) != null) {
-                    response.append(responseLine.trim());
+                    // Append directly, Jackson handles whitespace
+                    response.append(responseLine);
                 }
                 return response.toString();
             }
         } else {
-            throw new IOException("GET request failed: " + responseCode);
+            String errorDetails = readErrorStream(connection);
+            throw new IOException(String.format("GET request failed for path %s: %d - %s", path, responseCode, errorDetails));
+        }
+    }
+
+    // Helper to read error stream
+    private static String readErrorStream(HttpURLConnection connection) {
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(connection.getErrorStream(), StandardCharsets.UTF_8))) {
+            StringBuilder errorResponse = new StringBuilder();
+            String responseLine;
+            while ((responseLine = br.readLine()) != null) {
+                errorResponse.append(responseLine.trim());
+            }
+            return errorResponse.toString();
+        } catch (IOException | NullPointerException e) {
+            // If reading error stream fails or it's null
+            return "No error details available.";
         }
     }
 
 
+    // fetchMessages updated to use correct nested URL structure
     public static List<MessageDto> fetchMessages(String currentContextType, UUID currentContextId) {
-        String path = "";
-        switch (currentContextType) {
-            case "sprint": path = "/sprints/" + currentContextId + "/messages"; break;
-            case "epic": path = "/epics/" + currentContextId + "/messages"; break;
-            case "userstory": path = "/user-stories/" + currentContextId + "/messages"; break;
-            case "task": path = "/tasks/" + currentContextId + "/messages"; break;
-            default: return null;
+        // Validate inputs
+        if (currentContextType == null || currentContextType.isEmpty() || currentContextId == null) {
+            System.err.println("Error fetching messages: Context type and ID are required.");
+            return new ArrayList<>();
         }
+
+        // Determine the plural form for the URL path
+        String contextTypePlural;
+        switch (currentContextType.toLowerCase()) {
+            case "sprint":
+                contextTypePlural = "sprints";
+                break;
+            case "epic":
+                contextTypePlural = "epics";
+                break;
+            case "userstory":
+                contextTypePlural = "user-stories"; // Assuming kebab-case based on other paths
+                break;
+            case "task":
+                contextTypePlural = "tasks";
+                break;
+            default:
+                System.err.println("Error fetching messages: Unknown context type '" + currentContextType + "' for URL construction.");
+                return new ArrayList<>();
+        }
+
+        // Construct the correct nested path
+        String path = String.format("/%s/%s/messages",
+                                    contextTypePlural,
+                                    currentContextId.toString());
+
         try {
             String response = sendGetRequest(path);
-            return parseMessages(response);
+            // Parse the JSON response into a list of MessageDto objects
+            // Note: MessageDto.createdAt is String due to JavaTimeModule issues
+            return objectMapper.readValue(response, new TypeReference<List<MessageDto>>() {});
         } catch (IOException | InterruptedException e) {
-            System.err.println("Failed to fetch messages: " + e.getMessage());
-            return null;
+            System.err.println("Failed to fetch messages for " + currentContextType + "/" + currentContextId + " from path " + path + ": " + e.getMessage());
+            // Optionally log the stack trace for debugging: e.printStackTrace();
+            return new ArrayList<>(); // Return empty list on error
+        } catch (Exception e) {
+            // Catch unexpected parsing errors
+             System.err.println("Unexpected error parsing messages for " + currentContextType + "/" + currentContextId + ": " + e.getMessage());
+             e.printStackTrace();
+             return new ArrayList<>();
         }
     }
 
-    public static List<MessageDto> parseMessages(String jsonResponse) {
-        List<MessageDto> messages = new ArrayList<>();
-        Pattern messagePattern = Pattern.compile("\\{\"id\":\"([^\"]+)\",\"content\":\"([^\"]*)\",\"sender\":\\{\"id\":\"([^\"]+)\",\"username\":\"([^\"]+)\".*?\\},.*?\"createdAt\":\"([^\"]+)\".*?\\}");
-        Matcher matcher = messagePattern.matcher(jsonResponse);
-        while (matcher.find()) {
-            MessageDto message = new MessageDto();
-            message.setContent(matcher.group(2));
-            UserDto sender = new UserDto();
-            sender.setUsername(matcher.group(4));
-            message.setSender(sender);
-            message.setCreatedAt(LocalDateTime.parse(matcher.group(5).substring(0, matcher.group(5).indexOf('.')), DATE_TIME_FORMATTER)); //Basic date parsing, adjust as needed
-            messages.add(message);
+
+    // Helper for capitalizing entity types in error messages (still used)
+    private static String capitalize(String str) {
+        if (str == null || str.isEmpty()) {
+            return str;
         }
-        return messages;
+        return str.substring(0, 1).toUpperCase() + str.substring(1);
     }
 
-
-    // DTO classes (simplified for client)
-    public static class LoginResponse {
-        private String token;
-        private String message;
-
-        public LoginResponse(String token, String message) {
-            this.token = token;
-            this.message = message;
-        }
-        public String getToken() { return token; }
-    }
-
-    public static class TeamDto implements ContextEntityDto {
-        private UUID id;
-        private String name;
-        private int index;
-        public TeamDto(UUID id, String name, int index) { this.id = id; this.name = name; this.index = index;}
-        public UUID getId() { return id; }
-        public String getName() { return name; }
-        public String toString() { return index + ". Team: " + name + ", ID: " + id; }
-    }
-
-    public static class SprintDto implements ContextEntityDto {
-        private UUID id;
-        private String name;
-        private int index;
-        public SprintDto(UUID id, String name, int index) { this.id = id; this.name = name; this.index = index;}
-        public UUID getId() { return id; }
-        public String getName() { return name; }
-        public String toString() { return index + ". Sprint: " + name + ", ID: " + id; }
-    }
-
-    public static class EpicDto implements ContextEntityDto {
-        private UUID id;
-        private String name;
-        private int index;
-        public EpicDto(UUID id, String name, int index) { this.id = id; this.name = name; this.index = index;}
-        public UUID getId() { return id; }
-        public String getName() { return name; }
-        public String toString() { return index + ". Epic: " + name + ", ID: " + id; }
-    }
-
-    public static class UserStoryDto implements ContextEntityDto {
-        private UUID id;
-        private String name;
-        private int index;
-        public UserStoryDto(UUID id, String name, int index) { this.id = id; this.name = name; this.index = index;}
-        public UUID getId() { return id; }
-        public String getName() { return name; }
-        public String toString() { return index + ". User Story: " + name + ", ID: " + id; }
-    }
-
-    public static class TaskDto implements ContextEntityDto {
-        private UUID id;
-        private String name;
-        private int index;
-        public TaskDto(UUID id, String name, int index) { this.id = id; this.name = name; this.index = index;}
-        public UUID getId() { return id; }
-        public String getName() { return name; }
-        public String toString() { return index + ". Task: " + name + ", ID: " + id; }
-    }
-
-    public interface ContextEntityDto {
-        UUID getId();
-        String getName();
-    }
-
-    public static class MessageDto {
-        private String content;
-        private UserDto sender;
-        private LocalDateTime createdAt;
-
-        public String getContent() { return content; }
-        public void setContent(String content) { this.content = content; }
-        public UserDto getSender() { return sender; }
-        public void setSender(UserDto sender) { this.sender = sender; }
-        public LocalDateTime getCreatedAt() { return createdAt; }
-        public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
-    }
-
-    public static class UserDto {
-        private String username;
-        public String getUsername() { return username; }
-        public void setUsername(String username) { this.username = username; }
-    }
+    // Removed all inner DTO classes and ContextEntityDto interface
+    // Removed escapeJsonString method
+    // Removed parse* methods
 }

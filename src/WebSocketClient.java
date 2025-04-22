@@ -11,13 +11,16 @@ import org.springframework.web.socket.messaging.WebSocketStompClient;
 import org.springframework.web.socket.sockjs.client.SockJsClient;
 import org.springframework.web.socket.sockjs.client.Transport;
 import org.springframework.web.socket.sockjs.client.WebSocketTransport;
+import org.springframework.http.MediaType;
 import org.springframework.web.socket.sockjs.client.RestTemplateXhrTransport; // Import fallback transport
 
 import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets; // Import Charset
 import java.net.URI;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map; // Import Map
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -77,6 +80,7 @@ public class WebSocketClient {
         stompClient = new WebSocketStompClient(transport);
 
         // Use Jackson for message conversion (ensure DTOs are compatible)
+        // Revert to only Jackson converter
         stompClient.setMessageConverter(new MappingJackson2MessageConverter());
 
         // Task scheduler for heartbeats, etc.
@@ -124,14 +128,17 @@ public class WebSocketClient {
 
     public static void sendMessage(String messageContent) {
         if (stompSession != null && stompSession.isConnected() && currentDestination != null) {
+            // Prepare headers
+            StompHeaders headers = new StompHeaders(); // Create headers
+            headers.setDestination(currentDestination); // Set destination
+            headers.setContentType(MediaType.APPLICATION_JSON); // Set content type to JSON
+
             try {
-                // Create a simple map or a dedicated DTO for the message payload
-                // Server expects {"content": "..."}
-                String payload = objectMapper.writeValueAsString(java.util.Map.of("content", messageContent));
-                stompSession.send(currentDestination, payload.getBytes()); // Send as byte array
+                // Create the Map payload
+                Map<String, String> payload = java.util.Map.of("content", messageContent);
+                // Send the Map, letting MappingJackson2MessageConverter serialize it
+                stompSession.send(headers, payload);
                  System.out.println("Message sent to " + currentDestination);
-            } catch (JsonProcessingException e) {
-                 System.err.println("Failed to serialize message: " + e.getMessage());
             } catch (IllegalStateException e) {
                 System.err.println("Cannot send message: " + e.getMessage()); // e.g., session not connected
             }
@@ -183,8 +190,8 @@ public class WebSocketClient {
             if (payload instanceof MessageDto) {
                 MessageDto message = (MessageDto) payload;
                 String senderUsername = (message.getSender() != null) ? message.getSender().getUsername() : "Unknown";
-                String createdAtStr = (message.getCreatedAt() != null) ? message.getCreatedAt().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) : "No timestamp";
-                System.out.printf("\n%s (%s): %s\n> ", senderUsername, createdAtStr, message.getContent());
+                // String createdAtStr = (message.getCreatedAt() != null) ? message.getCreatedAt().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) : "No timestamp"; // REMOVED due to parsing issues
+                System.out.printf("\n%s: %s\n> ", senderUsername, message.getContent()); // Removed timestamp from output
             } else {
                  System.out.println("Received unexpected payload type: " + (payload != null ? payload.getClass().getName() : "null"));
                  System.out.print("> "); // Re-print prompt
